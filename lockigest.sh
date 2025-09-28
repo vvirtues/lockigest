@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# lockigest.sh - Wayland/Hyprland patched for quickshell
-# Dependencies: hyprctl, jq, ydotool, systemd (loginctl)
 
 set -euo pipefail
 
