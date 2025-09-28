@@ -1,101 +1,104 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# lockigest.sh - Wayland/Hyprland patched for quickshell
+# Dependencies: hyprctl, jq, ydotool, systemd (loginctl)
 
-# Configuration
-program_name="Lockigest"
-wait_time=120  # It must be bigger than the $countdown
-countdown=5
+set -euo pipefail
 
-# MOUSE LOCATION VARS
-X=0
-Y=0
+# Config
+IDLE_SECONDS=${IDLE_SECONDS:-5}       # idle time to arm trap
+COUNTDOWN_SECONDS=${COUNTDOWN_SECONDS:-2} # seconds before lock after movement
+CHECK_INTERVAL=${CHECK_INTERVAL:-0.5}   # polling interval
+SAFE_RADIUS=${SAFE_RADIUS:-80}          # safe area radius (px)
+SAFE_X=${SAFE_X:-1}
+SAFE_Y=${SAFE_Y:-1}
 
-# PREV MOUSE LOCATION VARS
-PML_X=0
-PML_Y=0
+# -------------------------
+# Functions
+# -------------------------
 
-# STATUS
-counter=0
-protection=0
-
-
-# FUNTIONS
-installed() {
-    command -v xdotool >/dev/null 2>&1 || {
-        echo >&2 "$1 required. Please install it first.";
-        exit 1;
-    }
-}
-installed "xdotool"
-
-get_cursor_location() {
-    eval $(xdotool getmouselocation -s);
+# Get cursor X Y
+get_cursor_pos() {
+    hyprctl cursorpos -j 2>/dev/null | jq -r '"\(.x) \(.y)"' || return 1
 }
 
-toggle_protection() {
-    protection=$1
-    if [ $1 -eq 1 ]; then
-        notify "Protection mode was activated." 20000 "security-high"
-        printf "\t Protection mode was activated.\n"
+# Squared distance between two points
+squared_distance() {
+    local dx=$(( $1 - $2 ))
+    local dy=$(( $3 - $4 ))
+    echo $(( dx*dx + dy*dy ))
+}
+
+# -------------------------
+# Init
+# -------------------------
+initial_pos="$(get_cursor_pos)" || { echo "Failed to read cursor position. Make sure hyprctl is available."; exit 1; }
+read -r initial_x initial_y <<<"$initial_pos"
+
+if [ -z "$SAFE_X" ] || [ -z "$SAFE_Y" ]; then
+    SAFE_X=$initial_x
+    SAFE_Y=$initial_y
+fi
+
+last_x=$initial_x
+last_y=$initial_y
+stationary_since=$(date +%s)
+trap_armed=0
+
+echo "Initial cursor: $initial_x,$initial_y"
+echo "Safe area: $SAFE_X,$SAFE_Y (radius ${SAFE_RADIUS}px)"
+echo "Idle timeout: ${IDLE_SECONDS}s, countdown: ${COUNTDOWN_SECONDS}s"
+
+# -------------------------
+# Main loop
+# -------------------------
+while true; do
+    cur_pos="$(get_cursor_pos)" || { sleep "$CHECK_INTERVAL"; continue; }
+    read -r cur_x cur_y <<<"$cur_pos"
+
+    if [ "$cur_x" -eq "$last_x" ] && [ "$cur_y" -eq "$last_y" ]; then
+        # Still stationary
+        now=$(date +%s)
+        elapsed=$(( now - stationary_since ))
+
+        if [ $trap_armed -eq 0 ] && [ $elapsed -ge $IDLE_SECONDS ]; then
+            trap_armed=1
+            echo "$(date +"%F %T") - Trap ARMED (cursor stationary for ${elapsed}s)"
+        fi
     else
-        notify "Protection mode was deactivated." 20000 "security-low"
-        printf "\t Protection mode was deactivated.\n"
-    fi
-}
-notify() {
-    notify-send "$program_name" "$1" -t ${2:-2000} --icon="${3:-security-high}"
-}
-
-# START
-while :; do
-    sleep 1
-    get_cursor_location
-
-    if (( $X != $PML_X || $Y != $PML_Y )); then
-        # update "previous mouse locations"
-        PML_X=$X
-        PML_Y=$Y
-
-        counter=0 # initialize counter again
-        if [ $protection -eq 1 ]; then
-            while [ $counter -ne $countdown ]; do
-                ((counter++))
-                get_cursor_location
-                printf  "(%s/%s)\t Move your cursor to the specified area. \n" \
-                        "$counter" "$countdown"
-
-                remaining=$(expr $countdown + 1 - $counter)
-
-                # if "remaining" is an odd number
-                if [ `expr $remaining % 2` -ne 0 ]; then
-                    # inform about upcoming screen lock
-                    notify "Your screen is getting locked in $remaining second(s)."
-                fi
-
-                # the trigget to deactivate the protection mode
-                # if mouse's y point is equal to zero (so it's on upper top)
-                if [ $Y -eq 0 ]; then
-                    toggle_protection 0
+        # Cursor moved
+        if [ $trap_armed -eq 1 ]; then
+            echo "$(date +"%F %T") - Movement detected while trap ARMED. Countdown ${COUNTDOWN_SECONDS}s."
+            locked=1
+            for ((i=COUNTDOWN_SECONDS; i>0; i--)); do
+                cur_pos2="$(get_cursor_pos)" || break
+                read -r cur_x2 cur_y2 <<<"$cur_pos2"
+                dist2=$(squared_distance "$cur_x2" "$SAFE_X" "$cur_y2" "$SAFE_Y")
+                if [ "$dist2" -le $(( SAFE_RADIUS * SAFE_RADIUS )) ]; then
+                    echo "$(date +"%F %T") - Cursor reached safe area; cancelling lock."
+                    trap_armed=0
+                    last_x=$cur_x2
+                    last_y=$cur_y2
+                    stationary_since=$(date +%s)
+                    locked=0
                     break
                 fi
                 sleep 1
             done
 
-            # if the protection is active,
-            if [ $protection -eq 1 ]; then
-                printf "\t\t The device was locked.\n"
-                toggle_protection 0 # disable the protection
-                xdg-screensaver lock # lock the screen. alternative: "xdotool key Ctrl+alt+l"
+            if [ "$locked" -eq 1 ]; then
+                echo "$(date +"%F %T") - Countdown expired — locking session."
+                loginctl lock-session
+                exit 0
             fi
         fi
-        # echo $X - $Y # debug
-        printf "\t The location of the cursor was changed.\n"
-    else
-        ((counter++)) # increase counter
-        printf "(%s/%s)\t The cursor is inactive. X: $X Y: $Y\n" \
-             "$counter" "$wait_time"
 
-        if [ $counter -ge $wait_time ] && [ $protection -eq 0 ]; then
-            toggle_protection 1
-        fi
+        # Update last position and stationary timer
+        last_x=$cur_x
+        last_y=$cur_y
+        stationary_since=$(date +%s)
     fi
+
+    sleep "$CHECK_INTERVAL"
 done
+
+
