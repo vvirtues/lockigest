@@ -4,6 +4,7 @@ Dependencies:
 - hyprland
 - ydotool
 - systemd (for `loginctl lock-session`)
+- jq (parsing hyprctl)
 
 Variables format changed, look at the start of the file to change them
 
