@@ -1,5 +1,10 @@
 # 🔐 Lockigest (hyprland fork)
 Forked lockigest to work on hyprland. Can probably be modified to support other WMs as well.
+TODO:
+- [ ] Add notifications instead of terminal text
+- [ ] Make it easier to automate
+- [ ] The systemd service the author had intended to add
+
 Dependencies:
 - hyprland
 - ydotool
