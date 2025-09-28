@@ -1,3 +1,15 @@
+# 🔐 Lockigest (hyprland fork)
+Forked lockigest to work on hyprland. Can probably be modified to support other WMs as well.
+Dependencies:
+- hyprland
+- ydotool
+- systemd (for `loginctl lock-session`)
+
+Variables format changed, look at the start of the file to change them
+
+<details>
+    <summary>Previous README</summary>
+
 # 🔐 Lockigest
 Lockigest is a very primitive, manipulative security software that sets a trap instead of locking your device screen immediately to protect it from strangers.
 
@@ -25,3 +37,4 @@ The second variable is a countdown that will be trigged when protection mode is 
 ```
 
 Soon I will add a systemd service unit to run Lockigest in the background at startup.
+</details>
