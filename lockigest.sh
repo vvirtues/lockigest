@@ -60,12 +60,12 @@ while true; do
 
         if [ $trap_armed -eq 0 ] && [ $elapsed -ge $IDLE_SECONDS ]; then
             trap_armed=1
-            echo "$(date +"%F %T") - Trap ARMED (cursor stationary for ${elapsed}s)"
+            echo "$(date +"%F %T") - ARMED (cursor stationary for ${elapsed}s)"
         fi
     else
         # Cursor moved
         if [ $trap_armed -eq 1 ]; then
-            echo "$(date +"%F %T") - Movement detected while trap ARMED. Countdown ${COUNTDOWN_SECONDS}s."
+            echo "$(date +"%F %T") - Movement detected while ARMED. Countdown ${COUNTDOWN_SECONDS}s."
             locked=1
             for ((i=COUNTDOWN_SECONDS; i>0; i--)); do
                 cur_pos2="$(get_cursor_pos)" || break
